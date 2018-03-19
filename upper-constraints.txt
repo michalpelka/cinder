@@ -1,3 +1,4 @@
+setuptools===38.7.0
 # taken from openstack/requirements stable/ocata @ 2b5eeb2f
 APScheduler===3.3.1
 Babel===2.3.4
