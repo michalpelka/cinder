@@ -43,6 +43,7 @@ from oslo_service import loopingcall
 from oslo_service import periodic_task
 from oslo_utils import excutils
 from oslo_utils import importutils
+from oslo_utils import timeutils
 import six
 
 from cinder.backup import driver
@@ -95,6 +96,7 @@ MAPPING = {
     # driver when it imports google.auth
     'cinder.backup.drivers.google': 'cinder.backup.drivers.gcs',
 }
+SERVICE_PGRP = '' if os.name == 'nt' else os.getpgrp()
 
 
 # TODO(geguileo): Once Eventlet issue #432 gets fixed we can just tpool.execute
@@ -189,15 +191,16 @@ class BackupManager(manager.ThreadPoolManager):
         self.backup_rpcapi = backup_rpcapi.BackupAPI()
         self.volume_rpcapi = volume_rpcapi.VolumeAPI()
 
-    @utils.synchronized('backup-pgid-%s' % os.getpgrp(),
+    @utils.synchronized('cleanup_incomplete_backups_%s' % SERVICE_PGRP,
                         external=True, delay=0.1)
     def _cleanup_incomplete_backup_operations(self, ctxt):
         # Only the first launched process should do the cleanup, the others
         # have waited on the lock for the first one to finish the cleanup and
         # can now continue with the start process.
         if self._process_number != 1:
-            LOG.debug("Process #%s (pgid=%s) skips cleanup.",
-                      self._process_number, os.getpgrp())
+            LOG.debug("Process #%s %sskips cleanup.",
+                      self._process_number,
+                      '(pgid=%s) ' % SERVICE_PGRP if SERVICE_PGRP else '')
             return
 
         LOG.info("Cleaning up incomplete backup operations.")
@@ -544,17 +547,22 @@ class BackupManager(manager.ThreadPoolManager):
         backup.host = self.host
         backup.save()
 
-        expected_status = 'restoring-backup'
-        actual_status = volume['status']
-        if actual_status != expected_status:
+        expected_status = [fields.VolumeStatus.RESTORING_BACKUP,
+                           fields.VolumeStatus.CREATING]
+        volume_previous_status = volume['status']
+        if volume_previous_status not in expected_status:
             err = (_('Restore backup aborted, expected volume status '
                      '%(expected_status)s but got %(actual_status)s.') %
-                   {'expected_status': expected_status,
-                    'actual_status': actual_status})
+                   {'expected_status': ','.join(expected_status),
+                    'actual_status': volume_previous_status})
             backup.status = fields.BackupStatus.AVAILABLE
             backup.save()
-            self.db.volume_update(context, volume_id,
-                                  {'status': 'error_restoring'})
+            self.db.volume_update(
+                context, volume_id,
+                {'status':
+                 (fields.VolumeStatus.ERROR if
+                  volume_previous_status == fields.VolumeStatus.CREATING else
+                  fields.VolumeStatus.ERROR_RESTORING)})
             raise exception.InvalidVolume(reason=err)
 
         expected_status = fields.BackupStatus.RESTORING
@@ -565,7 +573,8 @@ class BackupManager(manager.ThreadPoolManager):
                    {'expected_status': expected_status,
                     'actual_status': actual_status})
             self._update_backup_error(backup, err)
-            self.db.volume_update(context, volume_id, {'status': 'error'})
+            self.db.volume_update(context, volume_id,
+                                  {'status': fields.VolumeStatus.ERROR})
             raise exception.InvalidBackup(reason=err)
 
         if volume['size'] > backup['size']:
@@ -587,22 +596,34 @@ class BackupManager(manager.ThreadPoolManager):
             }
             backup.status = fields.BackupStatus.AVAILABLE
             backup.save()
-            self.db.volume_update(context, volume_id, {'status': 'error'})
+            self.db.volume_update(context, volume_id,
+                                  {'status': fields.VolumeStatus.ERROR})
             raise exception.InvalidBackup(reason=err)
 
+        canceled = False
         try:
-            canceled = False
             self._run_restore(context, backup, volume)
         except exception.BackupRestoreCancel:
             canceled = True
         except Exception:
             with excutils.save_and_reraise_exception():
-                self.db.volume_update(context, volume_id,
-                                      {'status': 'error_restoring'})
+                self.db.volume_update(
+                    context, volume_id,
+                    {'status': (fields.VolumeStatus.ERROR if
+                                actual_status == fields.VolumeStatus.CREATING
+                                else fields.VolumeStatus.ERROR_RESTORING)})
                 backup.status = fields.BackupStatus.AVAILABLE
                 backup.save()
 
-        volume.status = 'error' if canceled else 'available'
+        if canceled:
+            volume.status = fields.VolumeStatus.ERROR
+        else:
+            volume.status = fields.VolumeStatus.AVAILABLE
+            # NOTE(tommylikehu): If previous status is 'creating', this is
+            # just a new created volume and we need update the 'launched_at'
+            # attribute as well.
+            if volume_previous_status == fields.VolumeStatus.CREATING:
+                volume['launched_at'] = timeutils.utcnow()
         volume.save()
         backup.status = fields.BackupStatus.AVAILABLE
         backup.save()

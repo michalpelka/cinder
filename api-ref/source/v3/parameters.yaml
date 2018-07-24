@@ -433,6 +433,7 @@ alias:
 allow_attached_volume:
   description: |
     Whether to allow failover if any volumes are 'in-use'.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: true
   type: boolean
@@ -443,6 +444,14 @@ attach_mode:
   in: body
   required: true
   type: string
+attach_mode_1:
+  description: |
+    The attach mode of attachment, acceptable values are
+    read-only ('ro') and read-and-write ('rw').
+  in: body
+  required: false
+  type: string
+  min_version: 3.54
 attach_status:
   description: |
     The volume attach status.
@@ -602,6 +611,7 @@ bootable:
   description: |
     Enables or disables the bootable attribute. You
     can boot an instance from a bootable volume.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: true
   type: boolean
@@ -609,6 +619,7 @@ bootable_1:
   description: |
     Enables or disables the bootable attribute. You
     can boot an instance from a bootable volume.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -647,9 +658,9 @@ cgsnapshots:
   type: object
 cinder_id:
   description: |
-    The UUID of the snapshot in Cinder.
+    The UUID of the resource in Cinder.
   in: body
-  required: false
+  required: true
   type: string
 cipher:
   description: |
@@ -815,6 +826,7 @@ delete-volumes:
   description: |
     If set to ``true``, allows deletion of a
     group as well as all volumes in the group.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -975,6 +987,7 @@ detached_at:
 disabled:
   description: |
     Filter by disabled status.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1043,7 +1056,7 @@ extra_info:
   description: |
     More information about the resource.
   in: body
-  required: false
+  required: true
   type: string
 extra_specs_volume_type_optional:
   description: |
@@ -1072,6 +1085,7 @@ force:
   description: |
     Indicates whether to backup, even if the volume
     is attached. Default is ``false``.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1093,6 +1107,7 @@ force_4:
   description: |
     Enables or disables upload of a volume that is
     attached to an instance. Default=False.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1375,7 +1390,7 @@ incremental:
   description: |
     The backup mode. A valid value is ``true`` for
     incremental backup mode or ``false`` for full backup mode. Default
-    is ``false``.
+    is ``false``. See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1402,6 +1417,7 @@ is_incremental:
 is_public_group_type_optional:
   description: |
     Whether the group type is publicly visible.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1414,6 +1430,7 @@ is_public_group_type_required:
 is_public_volume_type_optional:
   description: |
     Whether the volume type is publicly visible.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1426,6 +1443,7 @@ is_public_volume_type_required:
 is_up:
   description: |
     Filter by up/down status.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1438,7 +1456,7 @@ key:
   type: string
 key_size:
   description: |
-    Size of encryption key, in bits. For example, 128 or 256. The default value
+    Size of encryption key, in bits. This is usually 256. The default value
     is None.
   in: body
   required: false
@@ -1745,7 +1763,7 @@ multiattach_req:
     To enable this volume to attach to more than one
     server, set this value to ``true``. Default is ``false``.
     Note that support for multiattach volumes depends on the volume
-    type being used.
+    type being used. See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -1915,6 +1933,13 @@ new_type:
   in: body
   required: true
   type: string
+no_snapshots:
+  description: |
+    Transfer volume without snapshots.
+  in: body
+  required: false
+  min_version: 3.55
+  type: boolean
 object_count:
   description: |
     The number of objects in the backup.
@@ -2179,6 +2204,7 @@ properties:
 protected:
   description: |
     Whether the new image is protected. Default=False.
+    See :ref:`valid boolean values <valid-boolean-values>`
   in: body
   required: false
   type: boolean
@@ -2255,7 +2281,7 @@ reason_not_safe:
   description: |
     The reason why the resource can't be managed.
   in: body
-  required: false
+  required: true
   type: string
 ref:
   description: |

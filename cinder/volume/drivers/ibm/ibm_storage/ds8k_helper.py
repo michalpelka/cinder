@@ -277,10 +277,19 @@ class DS8KCommonHelper(object):
         else:
             pools_str = self.backend['pools_str'].replace(
                 ' ', '').upper().split(',')
-        pools = self._get_pools(pools_str)
-        unsorted_pools = self._format_pools(pools)
-        storage_pools = collections.OrderedDict(sorted(
-            unsorted_pools, key=lambda i: i[1]['capavail'], reverse=True))
+        pools = []
+        storage_pools = collections.OrderedDict()
+        for pid in pools_str:
+            try:
+                pools.append(self._get_pool(pid))
+            except restclient.APIException as e:
+                LOG.warning("Failed to get pool %(id)s information, "
+                            "Exception: %(ex)s.", {'id': pid,
+                                                   'ex': six.text_type(e)})
+        if len(pools):
+            unsorted_pools = self._format_pools(pools)
+            storage_pools = collections.OrderedDict(sorted(
+                unsorted_pools, key=lambda i: i[1]['capavail'], reverse=True))
         return storage_pools
 
     @proxy.logger
@@ -696,7 +705,7 @@ class DS8KCommonHelper(object):
                 self._delete_host_ports(port)
             self._delete_host(host_id)
             target_ports = [p['wwpn'] for p in self._get_ioports()]
-            target_map = {initiator.upper(): target_ports
+            target_map = {initiator: target_ports
                           for initiator in connector['wwpns']}
             ret_info['data']['initiator_target_map'] = target_map
         return ret_info
@@ -757,10 +766,10 @@ class DS8KCommonHelper(object):
     def _create_lun(self, volData):
         return self._client.fetchid('POST', '/volumes', volData)
 
-    def _get_pools(self, pools_str):
-        return [self._client.fetchone('GET', '/pools/%s' % pid,
-                fields=['id', 'name', 'node', 'stgtype', 'cap', 'capavail'])
-                for pid in pools_str]
+    def _get_pool(self, pool_id):
+        return self._client.fetchone('GET', '/pools/%s' % pool_id,
+                                     fields=['id', 'name', 'node', 'stgtype',
+                                             'cap', 'capavail'])
 
     def start_flashcopy(self, vol_pairs, freeze=False):
         options = [

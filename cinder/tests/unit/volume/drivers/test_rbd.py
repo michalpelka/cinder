@@ -17,6 +17,7 @@
 import math
 import os
 import tempfile
+import uuid
 
 import castellan
 import ddt
@@ -26,6 +27,7 @@ from oslo_utils import imageutils
 from oslo_utils import units
 
 from cinder import context
+from cinder import db
 from cinder import exception
 import cinder.image.glance
 from cinder.image import image_utils
@@ -183,6 +185,7 @@ class RBDTestCase(test.TestCase):
         self.cfg.rbd_store_chunk_size = 4
         self.cfg.rados_connection_retries = 3
         self.cfg.rados_connection_interval = 5
+        self.cfg.backup_use_temp_snapshot = False
 
         mock_exec = mock.Mock()
         mock_exec.return_value = ('', '')
@@ -1335,9 +1338,8 @@ class RBDTestCase(test.TestCase):
         self.assertEqual((free_capacity, total_capacity), result)
 
     @common_mocks
-    def test_get_pool_bytes(self, free_capacity=1.56, total_capacity=3.0,
-                            dynamic_total=True):
-        """test for mon_commands returning bytes instead of str"""
+    def test_get_pool_bytes(self):
+        """Test for mon_commands returning bytes instead of strings."""
         client = self.mock_client.return_value
         client.__enter__.return_value = client
         client.cluster.mon_command.side_effect = [
@@ -1350,14 +1352,14 @@ class RBDTestCase(test.TestCase):
             (0, b'{"pool_name":"volumes","pool_id":4,"quota_max_objects":0,'
              b'"quota_max_bytes":3221225472}\n', ''),
         ]
-        with mock.patch.object(self.driver.configuration, 'safe_get',
-                               return_value=dynamic_total):
-            result = self.driver._get_pool_stats()
+        result = self.driver._get_pool_stats()
         client.cluster.mon_command.assert_has_calls([
             mock.call('{"prefix":"df", "format":"json"}', ''),
             mock.call('{"prefix":"osd pool get-quota", "pool": "rbd",'
                       ' "format":"json"}', ''),
         ])
+        free_capacity = 1.56
+        total_capacity = 3.0
         self.assertEqual((free_capacity, total_capacity), result)
 
     @common_mocks
@@ -2005,6 +2007,63 @@ class RBDTestCase(test.TestCase):
         self.assertEqual([self.mock_rbd.ImageExists], RAISED_EXCEPTIONS)
 
     @common_mocks
+    def test_get_manageable_snapshots(self):
+        cinder_snaps = [{'id': '00000000-0000-0000-0000-000000000000',
+                         'volume_id': '11111111-1111-1111-1111-111111111111'}]
+        vols = ['volume-11111111-1111-1111-1111-111111111111', 'vol1']
+        self.mock_rbd.RBD.return_value.list.return_value = vols
+        image = self.mock_proxy.return_value.__enter__.return_value
+        image.list_snaps.side_effect = [
+            [{'id': 1, 'name': 'snapshot-00000000-0000-0000-0000-000000000000',
+              'size': 2 * units.Gi},
+             {'id': 2, 'name': 'snap1', 'size': 6 * units.Gi},
+             {'id': 3, 'size': 8 * units.Gi,
+              'name': 'volume-22222222-2222-2222-2222-222222222222.clone_snap'
+              },
+             {'id': 4, 'size': 5 * units.Gi,
+              'name': 'backup.33333333-3333-3333-3333-333333333333.snap.123'}],
+            [{'id': 1, 'name': 'snap2', 'size': 4 * units.Gi}]]
+        res = self.driver.get_manageable_snapshots(
+            cinder_snaps, None, 1000, 0, ['size'], ['desc'])
+        exp = [
+            {'size': 8, 'safe_to_manage': False, 'extra_info': None,
+             'reason_not_safe': 'used for clone snap', 'cinder_id': None,
+             'reference': {
+                 'source-name':
+                     'volume-22222222-2222-2222-2222-222222222222.clone_snap'},
+             'source_reference': {
+                 'source-name': 'volume-11111111-1111-1111-1111-111111111111'}
+             },
+            {'size': 6, 'safe_to_manage': True, 'extra_info': None,
+             'reason_not_safe': None, 'cinder_id': None,
+             'reference': {'source-name': 'snap1'},
+             'source_reference': {
+                 'source-name': 'volume-11111111-1111-1111-1111-111111111111'}
+             },
+            {'size': 5, 'safe_to_manage': False, 'extra_info': None,
+             'reason_not_safe': 'used for volume backup', 'cinder_id': None,
+             'reference': {
+                 'source-name':
+                     'backup.33333333-3333-3333-3333-333333333333.snap.123'},
+             'source_reference': {
+                 'source-name': 'volume-11111111-1111-1111-1111-111111111111'}
+             },
+            {'size': 4, 'safe_to_manage': True, 'extra_info': None,
+             'reason_not_safe': None, 'cinder_id': None,
+             'reference': {'source-name': 'snap2'},
+             'source_reference': {'source-name': 'vol1'}
+             },
+            {'size': 2, 'safe_to_manage': False, 'extra_info': None,
+             'reason_not_safe': 'already managed',
+             'cinder_id': '00000000-0000-0000-0000-000000000000',
+             'reference': {'source-name':
+                           'snapshot-00000000-0000-0000-0000-000000000000'},
+             'source_reference': {
+                 'source-name': 'volume-11111111-1111-1111-1111-111111111111'}
+             }]
+        self.assertEqual(exp, res)
+
+    @common_mocks
     def test_unmanage_snapshot(self):
         proxy = self.mock_proxy.return_value
         proxy.__enter__.return_value = proxy
@@ -2175,6 +2234,53 @@ class RBDTestCase(test.TestCase):
             mock_exec.assert_any_call(
                 'rbd', 'import', '--pool', 'rbd', '--order', 22,
                 '/imgfile', self.volume_c.name)
+
+    @mock.patch('cinder.objects.Volume.get_by_id')
+    @mock.patch('cinder.db.volume_glance_metadata_get', return_value={})
+    @common_mocks
+    def test_get_backup_device_ceph(self, mock_gm_get, volume_get_by_id):
+        # Use the same volume for backup (volume_a)
+        volume_get_by_id.return_value = self.volume_a
+        driver = self.driver
+
+        self._create_backup_db_entry(fake.BACKUP_ID, self.volume_a['id'], 1)
+        backup = objects.Backup.get_by_id(self.context, fake.BACKUP_ID)
+        backup.service = 'asdf#ceph'
+
+        ret = driver.get_backup_device(self.context, backup)
+        self.assertEqual(ret, (self.volume_a, False))
+
+    def _create_backup_db_entry(self, backupid, volid, size,
+                                userid=str(uuid.uuid4()),
+                                projectid=str(uuid.uuid4())):
+        backup = {'id': backupid, 'size': size, 'volume_id': volid,
+                  'user_id': userid, 'project_id': projectid}
+        return db.backup_create(self.context, backup)['id']
+
+    @mock.patch('cinder.volume.driver.BaseVD._get_backup_volume_temp_snapshot')
+    @mock.patch('cinder.volume.driver.BaseVD._get_backup_volume_temp_volume')
+    @mock.patch('cinder.objects.Volume.get_by_id')
+    @mock.patch('cinder.db.volume_glance_metadata_get', return_value={})
+    @common_mocks
+    def test_get_backup_device_other(self,
+                                     mock_gm_get,
+                                     volume_get_by_id,
+                                     mock_get_temp_volume,
+                                     mock_get_temp_snapshot):
+        # Use a cloned volume for backup (volume_b)
+        self.volume_a.previous_status = 'in-use'
+        mock_get_temp_volume.return_value = self.volume_b
+        mock_get_temp_snapshot.return_value = (self.volume_b, False)
+
+        volume_get_by_id.return_value = self.volume_a
+        driver = self.driver
+
+        self._create_backup_db_entry(fake.BACKUP_ID, self.volume_a['id'], 1)
+        backup = objects.Backup.get_by_id(self.context, fake.BACKUP_ID)
+        backup.service = 'asdf'
+
+        ret = driver.get_backup_device(self.context, backup)
+        self.assertEqual(ret, (self.volume_b, False))
 
 
 class ManagedRBDTestCase(test_driver.BaseDriverTestCase):

@@ -143,6 +143,12 @@ BACKUP_AZ = '3.51'
 
 SUPPORT_VOLUME_TYPE_FILTER = '3.52'
 
+SUPPORT_VOLUME_SCHEMA_CHANGES = '3.53'
+
+ATTACHMENT_CREATE_MODE_ARG = '3.54'
+
+TRANSFER_WITH_SNAPSHOTS = '3.55'
+
 
 def get_mv_header(version):
     """Gets a formatted HTTP microversion header.

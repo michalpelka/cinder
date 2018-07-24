@@ -23,6 +23,8 @@
 
 import itertools
 
+from keystoneauth1 import loading
+
 from cinder import objects
 objects.register_all()
 
@@ -276,6 +278,7 @@ def list_opts():
         ('service_user',
             itertools.chain(
                 cinder_serviceauth.service_user_opts,
+                loading.get_session_conf_options(),
             )),
         ('backend_defaults',
             itertools.chain(
@@ -333,6 +336,7 @@ def list_opts():
                 cinder_volume_drivers_netapp_options.netapp_nfs_extra_opts,
                 cinder_volume_drivers_netapp_options.netapp_san_opts,
                 cinder_volume_drivers_netapp_options.netapp_replication_opts,
+                cinder_volume_drivers_netapp_options.netapp_support_opts,
                 cinder_volume_drivers_nexenta_options.NEXENTA_CONNECTION_OPTS,
                 cinder_volume_drivers_nexenta_options.NEXENTA_ISCSI_OPTS,
                 cinder_volume_drivers_nexenta_options.NEXENTA_DATASET_OPTS,

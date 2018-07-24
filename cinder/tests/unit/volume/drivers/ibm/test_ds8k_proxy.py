@@ -2613,6 +2613,124 @@ class DS8KProxyTest(test.TestCase):
                           self.driver.retype,
                           self.ctxt, volume, new_type, diff, host)
 
+    def test_retype_vol_from_non_multiattch_to_multiattch(self):
+        """retype volume from a non multiattach to multiattach."""
+        self.driver = FakeDS8KProxy(self.storage_info, self.logger,
+                                    self.exception, self)
+        self.driver.setup(self.ctxt)
+
+        new_type = {}
+        diff = {
+            'encryption': {},
+            'qos_specs': {},
+            'extra_specs': {
+                'multiattach': ('<is> False', '<is> True')
+            }
+        }
+        host = None
+        vol_type = volume_types.create(self.ctxt, 'VOL_TYPE',
+                                       {'multiattach': '<is> False'})
+        location = six.text_type({'vol_hex_id': TEST_VOLUME_ID})
+        metadata = [{'key': 'data_type', 'value': 'FB 512'}]
+        volume = self._create_volume(volume_type_id=vol_type.id,
+                                     provider_location=location,
+                                     volume_metadata=metadata)
+        retyped, retype_model_update = self.driver.retype(self.ctxt, volume,
+                                                          new_type, diff, host)
+        self.assertTrue(retype_model_update['multiattach'])
+        self.assertTrue(retyped)
+
+    def test_retype_vol_from_multiattch_to_non_multiattch(self):
+        """retype volume from a multiattach to non multiattach."""
+        self.driver = FakeDS8KProxy(self.storage_info, self.logger,
+                                    self.exception, self)
+        self.driver.setup(self.ctxt)
+
+        new_type = {}
+        diff = {
+            'encryption': {},
+            'qos_specs': {},
+            'extra_specs': {
+                'multiattach': ('<is> True', '<is> False')
+            }
+        }
+        host = None
+        vol_type = volume_types.create(self.ctxt, 'VOL_TYPE',
+                                       {'multiattach': '<is> True'})
+        location = six.text_type({'vol_hex_id': TEST_VOLUME_ID})
+        metadata = [{'key': 'data_type', 'value': 'FB 512'}]
+        volume = self._create_volume(volume_type_id=vol_type.id,
+                                     provider_location=location,
+                                     volume_metadata=metadata)
+        retyped, retype_model_update = self.driver.retype(self.ctxt, volume,
+                                                          new_type, diff, host)
+        self.assertFalse(retype_model_update['multiattach'])
+        self.assertTrue(retyped)
+
+    @mock.patch.object(helper.DS8KCommonHelper, 'get_flashcopy')
+    def test_retype_vol_from_non_multiattach_to_multiattach_and_replicated(
+            self, mock_get_flashcopy):
+        """retype from non multiattach to multiattach and replicated."""
+        self.configuration.replication_device = [TEST_REPLICATION_DEVICE]
+        self.driver = FakeDS8KProxy(self.storage_info, self.logger,
+                                    self.exception, self)
+        self.driver.setup(self.ctxt)
+
+        new_type = {}
+        diff = {
+            'encryption': {},
+            'qos_specs': {},
+            'extra_specs': {
+                'multiattach': ('<is> False', '<is> True'),
+                'replication_enabled': ('<is> False', '<is> True')
+            }
+        }
+        host = None
+        vol_type = volume_types.create(self.ctxt, 'VOL_TYPE', {})
+        location = six.text_type({'vol_hex_id': TEST_VOLUME_ID})
+        volume = self._create_volume(volume_type_id=vol_type.id,
+                                     provider_location=location)
+
+        mock_get_flashcopy.side_effect = [[TEST_FLASHCOPY], {}]
+        retyped, retype_model_update = self.driver.retype(
+            self.ctxt, volume, new_type, diff, host)
+        self.assertTrue(retype_model_update['multiattach'])
+        self.assertTrue(retyped)
+
+    @mock.patch.object(helper.DS8KCommonHelper, 'get_flashcopy')
+    @mock.patch.object(helper.DS8KCommonHelper, 'get_lun_pool')
+    def test_retype_non_multiattach_vol_to_multiattach_vol_in_specific_area(
+            self, mock_get_lun_pool, mock_get_flashcopy):
+        self.driver = FakeDS8KProxy(self.storage_info, self.logger,
+                                    self.exception, self)
+        self.driver.setup(self.ctxt)
+
+        new_type = {}
+        diff = {
+            'encryption': {},
+            'qos_specs': {},
+            'extra_specs': {
+                'multiattach': ('<is> False', '<is> True'),
+                'drivers:storage_pool_ids': (None, TEST_POOL_ID_1),
+                'drivers:storage_lss_ids': (None, TEST_LSS_ID_1)
+            }
+        }
+        host = None
+        vol_type = volume_types.create(self.ctxt, 'VOL_TYPE',
+                                       {'multiattach': '<is> False'})
+        location = six.text_type({'vol_hex_id': '0400'})
+        volume = self._create_volume(volume_type_id=vol_type.id,
+                                     provider_location=location)
+
+        mock_get_flashcopy.side_effect = [[TEST_FLASHCOPY], {}]
+        mock_get_lun_pool.return_value = {'id': TEST_POOL_ID_1}
+        retyped, retype_model_update = self.driver.retype(
+            self.ctxt, volume, new_type, diff, host)
+        location = ast.literal_eval(retype_model_update['provider_location'])
+        self.assertEqual(TEST_LSS_ID_1, location['vol_hex_id'][:2])
+        self.assertTrue(retype_model_update['multiattach'])
+        self.assertTrue(retyped)
+
     def test_migrate_replicated_volume(self):
         """migrate replicated volume should be failed."""
         self.driver = FakeDS8KProxy(self.storage_info, self.logger,
@@ -2689,8 +2807,9 @@ class DS8KProxyTest(test.TestCase):
         }
         mock_get_flashcopy.side_effect = [[TEST_FLASHCOPY], {}]
         with mock.patch.object(helper.DS8KCommonHelper,
-                               '_get_pools') as get_pools:
-            get_pools.return_value = FAKE_GET_POOL_RESPONSE_2['data']['pools']
+                               '_get_pool') as get_pool:
+            get_pool.return_value = FAKE_GET_POOL_RESPONSE_2['data'][
+                'pools'][0]
             moved, model_update = self.driver.migrate_volume(
                 self.ctxt, volume, backend)
             self.assertTrue(moved)
@@ -2707,11 +2826,8 @@ class DS8KProxyTest(test.TestCase):
 
         map_data = self.driver.initialize_connection(volume, TEST_CONNECTOR)
         self.assertEqual(int(TEST_LUN_ID), map_data['data']['target_lun'])
-        self.assertTrue(
-            list(map_data['data']['initiator_target_map'].keys())[0] in
-            [TEST_SOURCE_WWPN_1, TEST_SOURCE_WWPN_2])
-        self.assertTrue(
-            list(map_data['data']['initiator_target_map'].keys())[1] in
+        self.assertEqual(sorted(list(
+            map_data['data']['initiator_target_map'].keys()), key=str.lower),
             [TEST_SOURCE_WWPN_1, TEST_SOURCE_WWPN_2])
 
     def test_initialize_connection_of_eckd_volume(self):
@@ -2876,9 +2992,7 @@ class DS8KProxyTest(test.TestCase):
             }
         ]
         mock_get_host_ports.side_effect = [host_ports]
-        self.assertRaises(exception.VolumeDriverException,
-                          self.driver.terminate_connection, volume,
-                          TEST_CONNECTOR)
+        self.driver.terminate_connection(volume, TEST_CONNECTOR)
 
     @mock.patch.object(helper.DS8KCommonHelper, '_get_host_ports')
     @mock.patch.object(helper.DS8KCommonHelper, '_get_mappings')
@@ -2918,7 +3032,10 @@ class DS8KProxyTest(test.TestCase):
         ]
         mock_get_host_ports.side_effect = [host_ports]
         mock_get_mappings.side_effect = [mappings]
-        self.driver.terminate_connection(volume, TEST_CONNECTOR)
+        ret_info = self.driver.terminate_connection(volume, TEST_CONNECTOR)
+        self.assertEqual(sorted(list(
+            ret_info['data']['initiator_target_map'].keys()), key=str.lower),
+            [TEST_SOURCE_WWPN_1, TEST_SOURCE_WWPN_2])
 
     @mock.patch.object(helper.DS8KCommonHelper, '_get_host_ports')
     @mock.patch.object(helper.DS8KCommonHelper, '_get_mappings')

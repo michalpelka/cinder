@@ -289,9 +289,6 @@ class API(base.Base):
 
         utils.check_metadata_properties(metadata)
 
-        if (volume_type and self._is_multiattach(volume_type)) or multiattach:
-            context.authorize(vol_policy.MULTIATTACH_POLICY)
-
         create_what = {
             'context': context,
             'raw_size': size,
@@ -308,7 +305,7 @@ class API(base.Base):
             'optional_args': {'is_quota_committed': False},
             'consistencygroup': consistencygroup,
             'cgsnapshot': cgsnapshot,
-            'multiattach': multiattach,
+            'raw_multiattach': multiattach,
             'group': group,
             'group_snapshot': group_snapshot,
             'source_group': source_group,
@@ -349,8 +346,6 @@ class API(base.Base):
                 # Refresh the object here, otherwise things ain't right
                 vref = objects.Volume.get_by_id(
                     context, vref['id'])
-                vref.multiattach = (self._is_multiattach(volume_type) or
-                                    multiattach)
                 vref.save()
                 LOG.info("Create volume request issued successfully.",
                          resource=vref)
@@ -820,7 +815,8 @@ class API(base.Base):
                  resource=volume)
         self.unreserve_volume(context, volume)
 
-    def accept_transfer(self, context, volume, new_user, new_project):
+    def accept_transfer(self, context, volume, new_user, new_project,
+                        no_snapshots=False):
         context.authorize(vol_transfer_policy.ACCEPT_POLICY,
                           target_obj=volume)
         if volume['status'] == 'maintenance':
@@ -831,7 +827,8 @@ class API(base.Base):
         results = self.volume_rpcapi.accept_transfer(context,
                                                      volume,
                                                      new_user,
-                                                     new_project)
+                                                     new_project,
+                                                     no_snapshots=no_snapshots)
         LOG.info("Transfer volume completed successfully.",
                  resource=volume)
         return results
@@ -2120,7 +2117,8 @@ class API(base.Base):
                           ctxt,
                           volume_ref,
                           instance_uuid,
-                          connector=None):
+                          connector=None,
+                          attach_mode='null'):
         """Create an attachment record for the specified volume."""
         ctxt.authorize(attachment_policy.CREATE_POLICY, target_obj=volume_ref)
         connection_info = {}
@@ -2134,10 +2132,23 @@ class API(base.Base):
                                                      connector,
                                                      attachment_ref.id))
         attachment_ref.connection_info = connection_info
+
+        # Use of admin_metadata for RO settings is deprecated
+        # switch to using mode argument to attachment-create
         if self.db.volume_admin_metadata_get(
                 ctxt.elevated(),
                 volume_ref['id']).get('readonly', False):
+            LOG.warning("Using volume_admin_metadata to set "
+                        "Read Only mode is deprecated!  Please "
+                        "use the mode argument in attachment-create.")
             attachment_ref.attach_mode = 'ro'
+            # for now we have to let the admin_metadata override
+            # so we're using an else in the next step here, in
+            # other words, using volume_admin_metadata and mode params
+            # are NOT compatible
+        else:
+            attachment_ref.attach_mode = attach_mode
+
         attachment_ref.save()
         return attachment_ref
 

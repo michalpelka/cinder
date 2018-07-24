@@ -174,6 +174,13 @@ class InfiniboxVolumeDriver(san.SanISCSIDriver):
             raise exception.VolumeDriverException(message=msg)
         LOG.debug('setup complete')
 
+    def validate_connector(self, connector):
+        required = 'initiator' if self._protocol == 'iSCSI' else 'wwpns'
+        if required not in connector:
+            LOG.error('The volume driver requires %(data)s '
+                      'in the connector.', {'data': required})
+            raise exception.InvalidConnectorException(missing=required)
+
     def _make_volume_name(self, cinder_volume):
         return 'openstack-vol-%s' % cinder_volume.id
 
@@ -602,7 +609,7 @@ class InfiniboxVolumeDriver(san.SanISCSIDriver):
         """
         infinidat_snapshot = self._get_infinidat_snapshot(snapshot)
         clone_name = self._make_volume_name(volume) + '-internal'
-        infinidat_clone = infinidat_snapshot.create_child(name=clone_name)
+        infinidat_clone = infinidat_snapshot.create_snapshot(name=clone_name)
         # we need a cinder-volume-like object to map the clone by name
         # (which is derived from the cinder id) but the clone is internal
         # so there is no such object. mock one

@@ -763,11 +763,12 @@ class VolumeManager(manager.CleanableManager,
 
         # To backup a snapshot or a 'in-use' volume, create a temp volume
         # from the snapshot or in-use volume, and back it up.
-        # Get admin_metadata to detect temporary volume.
+        # Get admin_metadata (needs admin context) to detect temporary volume.
         is_temp_vol = False
-        if volume.admin_metadata.get('temporary', 'False') == 'True':
-            is_temp_vol = True
-            LOG.info("Trying to delete temp volume: %s", volume.id)
+        with volume.obj_as_admin():
+            if volume.admin_metadata.get('temporary', 'False') == 'True':
+                is_temp_vol = True
+                LOG.info("Trying to delete temp volume: %s", volume.id)
 
         # The status 'deleting' is not included, because it only applies to
         # the source volume to be deleted after a migration. No quota
@@ -1862,7 +1863,8 @@ class VolumeManager(manager.CleanableManager,
         LOG.info("Remove snapshot export completed successfully.",
                  resource=snapshot)
 
-    def accept_transfer(self, context, volume_id, new_user, new_project):
+    def accept_transfer(self, context, volume_id, new_user, new_project,
+                        no_snapshots=False):
         # NOTE(flaper87): Verify the driver is enabled
         # before going forward. The exception will be caught
         # and the volume status updated.
@@ -4386,29 +4388,22 @@ class VolumeManager(manager.CleanableManager,
         self._notify_about_volume_usage(context, vref, 'attach.start')
         attachment_ref = objects.VolumeAttachment.get_by_id(context,
                                                             attachment_id)
+
+        # Check to see if a mode parameter was set during attachment-create;
+        # this seems kinda wonky, but it's how we're keeping back compatability
+        # with the use of connector.mode for now.  In other words, we're
+        # making sure we still honor ro settings from the connector but
+        # we override that if a value was specified in attachment-create
+        if attachment_ref.attach_mode != 'null':
+            mode = attachment_ref.attach_mode
+            connector['mode'] = mode
+
         connection_info = self._connection_create(context,
                                                   vref,
                                                   attachment_ref,
                                                   connector)
-        # FIXME(jdg): get rid of this admin_meta option here, the only thing
-        # it does is enforce that a volume is R/O, that should be done via a
-        # type and not *more* metadata
-        volume_metadata = self.db.volume_admin_metadata_update(
-            context.elevated(),
-            attachment_ref.volume_id,
-            {'attached_mode': mode}, False)
-
-        # The prior seting of mode in the attachment_ref overrides any
-        # settings within the connector when dealing with read only
-        # attachment options
-        if mode != 'ro' and attachment_ref.attach_mode == 'ro':
-            connector['mode'] = 'ro'
-            mode = 'ro'
 
         try:
-            if volume_metadata.get('readonly') == 'True' and mode != 'ro':
-                raise exception.InvalidVolumeAttachMode(mode=mode,
-                                                        volume_id=vref.id)
             utils.require_driver_initialized(self.driver)
             self.driver.attach_volume(context,
                                       vref,

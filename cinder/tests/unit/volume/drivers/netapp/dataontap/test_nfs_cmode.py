@@ -81,6 +81,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
         config.netapp_server_port = '80'
         config.netapp_vserver = fake.VSERVER_NAME
         config.netapp_copyoffload_tool_path = 'copyoffload_tool_path'
+        config.netapp_api_trace_pattern = 'fake_regex'
         return config
 
     @ddt.data({'active_backend_id': None, 'targets': ['dev1', 'dev2']},
@@ -226,7 +227,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
             'pool_name': '10.10.10.10:/vola',
             'reserved_percentage': fake.RESERVED_PERCENTAGE,
             'max_over_subscription_ratio': fake.MAX_OVER_SUBSCRIPTION_RATIO,
-            'multiattach': False,
+            'multiattach': True,
             'total_capacity_gb': total_capacity_gb,
             'free_capacity_gb': free_capacity_gb,
             'netapp_dedupe_used_percent': 55.0,
@@ -246,6 +247,7 @@ class NetAppCmodeNfsDriverTestCase(test.TestCase):
             'consistencygroup_support': True,
             'consistent_group_snapshot_enabled': True,
             'replication_enabled': False,
+            'online_extend_support': False,
         }]
 
         expected[0].update({'QoS_support': cluster_credentials})

@@ -80,6 +80,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
         config.netapp_transport_type = 'https'
         config.netapp_server_port = '443'
         config.netapp_vserver = 'openstack'
+        config.netapp_api_trace_pattern = 'fake_regex'
         return config
 
     @mock.patch.object(perf_cmode, 'PerformanceCmodeLibrary', mock.Mock())
@@ -413,7 +414,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
             'consistent_group_snapshot_enabled': True,
             'reserved_percentage': 5,
             'max_over_subscription_ratio': 10.0,
-            'multiattach': False,
+            'multiattach': True,
             'total_capacity_gb': 10.0,
             'free_capacity_gb': 2.0,
             'netapp_dedupe_used_percent': 55.0,
@@ -431,6 +432,7 @@ class NetAppBlockStorageCmodeLibraryTestCase(test.TestCase):
             'netapp_raid_type': 'raid_dp',
             'netapp_disk_type': 'SSD',
             'replication_enabled': False,
+            'online_extend_support': False,
         }]
 
         expected[0].update({'QoS_support': cluster_credentials})

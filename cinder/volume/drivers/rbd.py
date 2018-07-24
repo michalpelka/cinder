@@ -37,6 +37,7 @@ from cinder import exception
 from cinder.i18n import _
 from cinder.image import image_utils
 from cinder import interface
+from cinder import objects
 from cinder.objects import fields
 from cinder import utils
 from cinder.volume import configuration
@@ -1769,6 +1770,57 @@ class RBDDriver(driver.CloneableImageVD, driver.MigrateVD,
             if not volume.is_protected_snap(snapshot.name):
                 volume.protect_snap(snapshot.name)
 
+    def get_manageable_snapshots(self, cinder_snapshots, marker, limit, offset,
+                                 sort_keys, sort_dirs):
+        """List manageable snapshots on RBD backend."""
+        manageable_snapshots = []
+        cinder_snapshot_ids = [resource['id'] for resource in cinder_snapshots]
+
+        with RADOSClient(self) as client:
+            for image_name in self.RBDProxy().list(client.ioctx):
+                with RBDVolumeProxy(self, image_name, read_only=True,
+                                    client=client.cluster,
+                                    ioctx=client.ioctx) as image:
+                    try:
+                        for snapshot in image.list_snaps():
+                            snapshot_id = (
+                                volume_utils.extract_id_from_snapshot_name(
+                                    snapshot['name']))
+                            snapshot_info = {
+                                'reference': {'source-name': snapshot['name']},
+                                'size': int(math.ceil(
+                                    float(snapshot['size']) / units.Gi)),
+                                'cinder_id': None,
+                                'extra_info': None,
+                                'safe_to_manage': False,
+                                'reason_not_safe': None,
+                                'source_reference': {'source-name': image_name}
+                            }
+
+                            if snapshot_id in cinder_snapshot_ids:
+                                # Exclude snapshots already managed.
+                                snapshot_info['reason_not_safe'] = (
+                                    'already managed')
+                                snapshot_info['cinder_id'] = snapshot_id
+                            elif snapshot['name'].endswith('.clone_snap'):
+                                # Exclude clone snapshot.
+                                snapshot_info['reason_not_safe'] = (
+                                    'used for clone snap')
+                            elif (snapshot['name'].startswith('backup')
+                                  and '.snap.' in snapshot['name']):
+                                # Exclude intermediate snapshots created by the
+                                # Ceph backup driver.
+                                snapshot_info['reason_not_safe'] = (
+                                    'used for volume backup')
+                            else:
+                                snapshot_info['safe_to_manage'] = True
+                            manageable_snapshots.append(snapshot_info)
+                    except self.rbd.ImageNotFound:
+                        LOG.debug("Image %s is not found.", image_name)
+
+        return volume_utils.paginate_entries_list(
+            manageable_snapshots, marker, limit, offset, sort_keys, sort_dirs)
+
     def unmanage_snapshot(self, snapshot):
         """Removes the specified snapshot from Cinder management."""
         with RBDVolumeProxy(self, snapshot.volume_name) as volume:
@@ -1777,3 +1829,16 @@ class RBDDriver(driver.CloneableImageVD, driver.MigrateVD,
             volume.set_snap(None)
             if not children and volume.is_protected_snap(snapshot.name):
                 volume.unprotect_snap(snapshot.name)
+
+    def get_backup_device(self, context, backup):
+        """Get a backup device from an existing volume.
+
+        To support incremental backups on Ceph to Ceph we don't clone
+        the volume.
+        """
+
+        if not backup.service.endswith('ceph') or backup.snapshot_id:
+            return super(RBDDriver, self).get_backup_device(context, backup)
+
+        volume = objects.Volume.get_by_id(context, backup.volume_id)
+        return (volume, False)

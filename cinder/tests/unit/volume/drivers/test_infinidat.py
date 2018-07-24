@@ -106,7 +106,7 @@ class InfiniboxDriverTestCaseBase(test.TestCase):
         self._mock_volume.get_size.return_value = 1 * units.Gi
         self._mock_volume.has_children.return_value = False
         self._mock_volume.get_logical_units.return_value = []
-        self._mock_volume.create_child.return_value = self._mock_volume
+        self._mock_volume.create_snapshot.return_value = self._mock_volume
         self._mock_host = mock.Mock()
         self._mock_host.get_luns.return_value = []
         self._mock_host.map_volume().get_lun.return_value = 1
@@ -340,7 +340,7 @@ class InfiniboxDriverTestCase(InfiniboxDriverTestCaseBase):
                           test_clone, test_snapshot)
 
     def test_create_volume_from_snapshot_create_fails(self):
-        self._mock_volume.create_child.side_effect = self._raise_infinisdk
+        self._mock_volume.create_snapshot.side_effect = self._raise_infinisdk
         self.assertRaises(exception.VolumeBackendAPIException,
                           self.driver.create_volume_from_snapshot,
                           test_clone, test_snapshot)
@@ -562,6 +562,13 @@ class InfiniboxDriverTestCaseFC(InfiniboxDriverTestCaseBase):
         result = self.driver.initialize_connection(test_volume, connector)
         self.assertEqual(1, result["data"]["target_lun"])
 
+    def test_validate_connector(self):
+        fc_connector = {'wwpns': [TEST_WWN_1, TEST_WWN_2]}
+        iscsi_connector = {'initiator': TEST_IQN}
+        self.driver.validate_connector(fc_connector)
+        self.assertRaises(exception.InvalidConnectorException,
+                          self.driver.validate_connector, iscsi_connector)
+
 
 class InfiniboxDriverTestCaseISCSI(InfiniboxDriverTestCaseBase):
     def setUp(self):
@@ -627,6 +634,13 @@ class InfiniboxDriverTestCaseISCSI(InfiniboxDriverTestCaseBase):
 
     def test_terminate_connection(self):
         self.driver.terminate_connection(test_volume, test_connector)
+
+    def test_validate_connector(self):
+        fc_connector = {'wwpns': [TEST_WWN_1, TEST_WWN_2]}
+        iscsi_connector = {'initiator': TEST_IQN}
+        self.driver.validate_connector(iscsi_connector)
+        self.assertRaises(exception.InvalidConnectorException,
+                          self.driver.validate_connector, fc_connector)
 
 
 class InfiniboxDriverTestCaseQoS(InfiniboxDriverTestCaseBase):
