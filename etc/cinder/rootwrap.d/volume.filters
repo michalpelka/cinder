@@ -233,3 +233,7 @@ umount.quobyte: CommandFilter, umount.quobyte, root
 
 # cinder/volume/targets/nvmet.py
 nvmetcli: CommandFilter, nvmetcli, root
+
+# cinder/volume/drivers/moosefs.py
+mfsmount: CommandFilter, mfsmount, root
+

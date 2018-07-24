@@ -1381,3 +1381,16 @@ class NVMETTargetAddError(CinderException):
 
 class NVMETTargetDeleteError(CinderException):
     message = "Failed to delete subsystem: %(subsystem)s"
+
+# MooseFS Storage Driver
+
+class MoosefsException(RemoteFSException):
+    message = _("Unknown MooseFS exception")
+
+
+class MoosefsNoSharesMounted(RemoteFSNoSharesMounted):
+    message = _("No mounted Moosefs shares found")
+
+
+class MoosefsNoSuitableShareFound(RemoteFSNoSuitableShareFound):
+    message = _("There is no share which can host %(volume_size)sG")
