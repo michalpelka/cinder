@@ -105,6 +105,67 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             moosefs_mount_point_base=self.base,
             moosefs_mount_options=opts)
 
+    def _update_volume_stats(self):
+        super(MoosefsDriver, self)._update_volume_stats()
+        self._stats['vendor_name'] = 'MooseFS'
+
+    def _init_vendor_properties(self):
+        namespace = 'moosefs'
+        properties = {}
+
+        self._set_property(
+            properties,
+            "%s:volume_format" % namespace,
+            "Volume format",
+            _("Specifies volume format."),
+            "string",
+            enum=["qcow2", "raw"],
+            default=self.configuration.vzstorage_default_volume_format)
+
+        return properties, namespace
+
+    def do_setup(self, context):
+        """Any initialization the volume driver does while starting."""
+        super(MoosefsDriver, self).do_setup(context)
+
+        config = self.configuration.vzstorage_shares_config
+        if not os.path.exists(config):
+            msg = (_("Moosefs config file at %(config)s doesn't exist.") %
+                   {'config': config})
+            LOG.error(msg)
+            raise exception.MoosefsException(msg)
+
+        if not os.path.isabs(self.base):
+            msg = _("Invalid mount point base: %s.") % self.base
+            LOG.error(msg)
+            raise exception.MoosefsException(msg)
+
+        used_ratio = self.configuration.vzstorage_used_ratio
+        if not ((used_ratio > 0) and (used_ratio <= 1)):
+            msg = _("Moosefs config 'mfsstorage_used_ratio' invalid. "
+                    "Must be > 0 and <= 1.0: %s.") % used_ratio
+            LOG.error(msg)
+            raise exception.MoosefsException(msg)
+
+        self.shares = {}
+
+        # Check if mount.fuse.pstorage is installed on this system;
+        # note that we don't need to be root to see if the package
+        # is installed.
+        package = 'mfsmout'
+        try:
+            self._execute(package, check_exit_code=False,
+                          run_as_root=False)
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                msg = _('%s is not installed.') % package
+                raise exception.VzStorageException(msg)
+            else:
+                raise
+
+        self.configuration.nas_secure_file_operations = 'true'
+        self.configuration.nas_secure_file_permissions = 'true'
+
     def _find_share(self, volume):
         """Choose MooseFS share among available ones for given volume size.
 
@@ -171,16 +232,44 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
         return True
 
+    def choose_volume_format(self, volume):
+        volume_format = None
+        volume_type = volume.volume_type
+
+        # Retrieve volume format from volume metadata
+        if 'volume_format' in volume.metadata:
+            volume_format = volume.metadata['volume_format']
+
+        # If volume format wasn't found in metadata, use
+        # volume type extra specs
+        if not volume_format and volume_type:
+            extra_specs = volume_type.extra_specs or {}
+            if 'moosefs:volume_format' in extra_specs:
+                volume_format = extra_specs['moosefs:volume_format']
+
+        # If volume format is still undefined, return default
+        # volume format from backend configuration
+        return (volume_format or
+                self.configuration.moosefs_default_volume_format)
+
+    def get_volume_format(self, volume):
+        active_file = self.get_active_image_from_info(volume)
+        active_file_path = os.path.join(self._local_volume_dir(volume),
+                                        active_file)
+        img_info = self._qemu_img_info(active_file_path, volume.name)
+        return image_utils.from_qemu_img_disk_format(img_info.file_format)
+
     @remotefs_drv.locked_volume_id_operation
     def extend_volume(self, volume, size_gb):
-        LOG.info(_LI('Extending volume %s.'), volume['id'])
+        LOG.info('Extending volume %s.', volume.id)
+        volume_format = self.get_volume_format(volume)
         self._extend_volume(volume, size_gb)
 
     def _extend_volume(self, volume, size_gb):
         volume_path = self.local_path(volume)
 
         self._check_extend_volume_support(volume, size_gb)
-        LOG.info(_LI('Resizing file to %sG...'), size_gb)
+        LOG.info('Resizing file to %sG...', size_gb)
 
         self._do_extend_volume(volume_path, size_gb)
 
@@ -231,24 +320,37 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         info_path = self._local_path_volume_info(snapshot['volume'])
         snap_info = self._read_info_file(info_path)
         vol_dir = self._local_volume_dir(snapshot['volume'])
-        out_format = "raw"
+        out_format = self.choose_volume_format(volume)
+        qemu_out_format = image_utils.fixup_disk_format(out_format)
+        volume_format = self.get_volume_format(snapshot.volume)
+        volume_path = self.local_path(volume)
 
         forward_file = snap_info[snapshot['id']]
         forward_path = os.path.join(vol_dir, forward_file)
 
-        # Find the file which backs this file, which represents the point
-        # when this snapshot was created.
-        img_info = self._qemu_img_info(forward_path,
-                                       snapshot['volume']['name'])
-        path_to_snap_img = os.path.join(vol_dir, img_info.backing_file)
+        if volume_format in (DISK_FORMAT_QCOW2, DISK_FORMAT_RAW):
+            forward_file = snap_info[snapshot.id]
+            forward_path = os.path.join(vol_dir, forward_file)
 
-        LOG.debug("_copy_volume_from_snapshot: will copy "
-                  "from snapshot at %s.", path_to_snap_img)
+            # Find the file which backs this file, which represents the point
+            # when this snapshot was created.
+            img_info = self._qemu_img_info(forward_path,
+                                           snapshot.volume.name)
+            path_to_snap_img = os.path.join(vol_dir, img_info.backing_file)
 
-        image_utils.convert_image(path_to_snap_img,
-                                  self.local_path(volume),
-                                  out_format)
-        self._extend_volume(volume, volume_size)
+            LOG.debug("_copy_volume_from_snapshot: will copy "
+                      "from snapshot at %s.", path_to_snap_img)
+
+            image_utils.convert_image(path_to_snap_img,
+                                      volume_path,
+                                      qemu_out_format)
+        else:
+            msg = _("Unsupported volume format %s") % volume_format
+            raise exception.InvalidVolume(msg)
+
+        self._extend_volume(volume, volume_size, out_format)
+        # Query qemu-img info to cache the output
+        img_info = self._qemu_img_info(volume_path, volume.name)
 
     @remotefs_drv.locked_volume_id_operation
     def delete_volume(self, volume):
