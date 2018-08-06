@@ -373,3 +373,24 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
         info_path = self._local_path_volume_info(volume)
         self._delete(info_path)
+
+    @remotefs_drv.locked_volume_id_operation
+    def initialize_connection(self, volume, connector):
+        """Allow connection to connector and return connection info.
+
+        :param volume: volume reference
+        :param connector: connector reference
+        """
+        # Find active image
+        active_file = self.get_active_image_from_info(volume)
+
+        data = {'export': volume.provider_location,
+                'format': self.get_volume_format(volume),
+                'name': active_file,
+                }
+
+        return {
+            'driver_volume_type': self.driver_volume_type,
+            'data': data,
+            'mount_point_base': self._get_mount_point_base(),
+        }

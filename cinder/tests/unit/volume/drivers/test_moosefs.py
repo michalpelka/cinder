@@ -133,7 +133,7 @@ class MoosefsTestCase(test.TestCase):
                           mock.sentinel.context)
 
     @mock.patch('os.path.exists')
-    def test_setup_no_vzstorage(self, mock_exists):
+    def test_setup_no_mfsmount(self, mock_exists):
         mock_exists.side_effect = self._path_exists
         exc = OSError()
         exc.errno = errno.ENOENT
@@ -142,8 +142,7 @@ class MoosefsTestCase(test.TestCase):
                           self._mfs_driver.do_setup,
                           mock.sentinel.context)
 
-    @ddt.data({'qemu_fmt': 'parallels', 'glance_fmt': 'ploop'},
-              {'qemu_fmt': 'qcow2', 'glance_fmt': 'qcow2'})
+    @ddt.data({'qemu_fmt': 'qcow2', 'glance_fmt': 'qcow2'})
     @ddt.unpack
     def test_initialize_connection(self, qemu_fmt, glance_fmt):
         drv = self._mfs_driver
@@ -156,7 +155,7 @@ class MoosefsTestCase(test.TestCase):
                                    return_value=snap_info):
                 ret = drv.initialize_connection(self.vol, None)
         name = drv.get_active_image_from_info(self.vol)
-        expected = {'driver_volume_type': 'vzstorage',
+        expected = {'driver_volume_type': 'moosefs',
                     'data': {'export': self._FAKE_SHARE,
                              'format': glance_fmt,
                              'name': name},
