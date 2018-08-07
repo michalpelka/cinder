@@ -152,7 +152,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         # Check if mfsmount is installed on this system;
         # note that we don't need to be root to see if the package
         # is installed.
-        package = 'mfsmout'
+        package = 'mfsmount'
         try:
             self._execute(package, check_exit_code=False,
                           run_as_root=False)
