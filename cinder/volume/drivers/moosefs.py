@@ -214,8 +214,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         :param moosefs_share: moosefs share
         :param volume_size_in_gib: int size in GB
         """
-
-        used_ratio = 1.0
+        used_ratio = self.configuration.moosefs_used_ratio
         LOG.info("volume_size_in_gib  : %d", volume_size_in_gib)
         LOG.debug(units.Gi)
 
@@ -223,7 +222,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
         total_size, available, allocated = self._get_capacity_info(moosefs_share)
 
-        if (allocated + volume_size) / total_size > used_ratio:
+        if (allocated + volume_size) // total_size > used_ratio:
             LOG.debug('_is_share_eligible: %s is above '
                       'moosefsstorage_used_ratio.', moosefs_share)
             return False
@@ -392,3 +391,30 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             'data': data,
             'mount_point_base': self._get_mount_point_base(),
         }
+
+    def _delete_snapshot(self, snapshot):
+        info_path = self._local_path_volume_info(snapshot.volume)
+        snap_info = self._read_info_file(info_path, empty_if_missing=True)
+        if snapshot.id not in snap_info:
+            LOG.warning("Snapshot %s doesn't exist in snap_info",
+                        snapshot.id)
+            return
+
+        snap_file = os.path.join(self._local_volume_dir(snapshot.volume),
+                                 snap_info[snapshot.id])
+        active_file = os.path.join(self._local_volume_dir(snapshot.volume),
+                                   snap_info['active'])
+        higher_file = self._get_higher_image_path(snapshot)
+        if higher_file:
+            higher_file = os.path.join(self._local_volume_dir(snapshot.volume),
+                                       higher_file)
+        elif active_file != snap_file:
+            msg = (_("Expected higher file exists for snapshot %s") %
+                   snapshot.id)
+            raise exception.MoosefsException(msg)
+
+        img_info = self._qemu_img_info(snap_file, snapshot.volume.name)
+        base_file = os.path.join(self._local_volume_dir(snapshot.volume),
+                                 img_info.backing_file)
+
+        super(MoosefsDriver, self)._delete_snapshot(snapshot)

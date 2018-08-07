@@ -110,7 +110,7 @@ class MoosefsTestCase(test.TestCase):
     @mock.patch('os.path.exists')
     def test_setup_invalid_usage_ratio(self, mock_exists):
         mock_exists.side_effect = self._path_exists
-        self._mfs_driver.configuration.vzstorage_used_ratio = 1.2
+        self._mfs_driver.configuration.moosefs_used_ratio = 1.2
         self.assertRaises(exception.MoosefsException,
                           self._mfs_driver.do_setup,
                           mock.sentinel.context)
@@ -118,7 +118,7 @@ class MoosefsTestCase(test.TestCase):
     @mock.patch('os.path.exists')
     def test_setup_invalid_usage_ratio2(self, mock_exists):
         mock_exists.side_effect = self._path_exists
-        self._mfs_driver.configuration.vzstorage_used_ratio = 0
+        self._mfs_driver.configuration.moosefs_used_ratio = 0
         self.assertRaises(exception.MoosefsException,
                           self._mfs_driver.do_setup,
                           mock.sentinel.context)
@@ -208,6 +208,7 @@ class MoosefsTestCase(test.TestCase):
 
     def test_is_share_eligible_true(self):
         drv = self._mfs_driver
+        #total_size, available, allocated
         cap_info = (100 * units.Gi, 40 * units.Gi, 60 * units.Gi)
         with mock.patch.object(drv, '_get_capacity_info',
                                return_value=cap_info):
