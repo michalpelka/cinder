@@ -120,7 +120,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             _("Specifies volume format."),
             "string",
             enum=["qcow2", "raw"],
-            default=self.configuration.vzstorage_default_volume_format)
+            default=self.configuration.moosefs_default_volume_format)
 
         return properties, namespace
 
@@ -128,7 +128,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         """Any initialization the volume driver does while starting."""
         super(MoosefsDriver, self).do_setup(context)
 
-        config = self.configuration.vzstorage_shares_config
+        config = self.configuration.moosefs_shares_config
         if not os.path.exists(config):
             msg = (_("Moosefs config file at %(config)s doesn't exist.") %
                    {'config': config})
@@ -140,7 +140,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             LOG.error(msg)
             raise exception.MoosefsException(msg)
 
-        used_ratio = self.configuration.vzstorage_used_ratio
+        used_ratio = self.configuration.moosefs_used_ratio
         if not ((used_ratio > 0) and (used_ratio <= 1)):
             msg = _("Moosefs config 'mfsstorage_used_ratio' invalid. "
                     "Must be > 0 and <= 1.0: %s.") % used_ratio
@@ -149,7 +149,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
         self.shares = {}
 
-        # Check if mount.fuse.pstorage is installed on this system;
+        # Check if mfsmount is installed on this system;
         # note that we don't need to be root to see if the package
         # is installed.
         package = 'mfsmout'
@@ -159,7 +159,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         except OSError as exc:
             if exc.errno == errno.ENOENT:
                 msg = _('%s is not installed.') % package
-                raise exception.VzStorageException(msg)
+                raise exception.MoosefsException(msg)
             else:
                 raise
 
@@ -198,10 +198,8 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         try:
 
             mounts = self._remotefsclient._read_mounts()
-            LOG.error('Mounts ', mounts)
+            LOG.debug('Mounts ', mounts)
             self._remotefsclient.mount(moosefs_share, mnt_flags)
-
-
             return
         except Exception as e:
 
@@ -227,7 +225,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
         if (allocated + volume_size) / total_size > used_ratio:
             LOG.debug('_is_share_eligible: %s is above '
-                      'vzstorage_used_ratio.', moosefs_share)
+                      'moosefsstorage_used_ratio.', moosefs_share)
             return False
 
         return True
@@ -359,7 +357,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             msg = (_('Volume %s does not have provider_location '
                      'specified, skipping.') % volume['name'])
             LOG.error(msg)
-            raise exception.VzStorageException(msg)
+            raise exception.MoosefsException(msg)
 
         self._ensure_share_mounted(volume['provider_location'])
         volume_dir = self._local_volume_dir(volume)

@@ -38,7 +38,7 @@ _orig_path_exists = os.path.exists
 @ddt.ddt
 class MoosefsTestCase(test.TestCase):
 
-    _FAKE_SHARE = "10.0.0.1,10.0.0.2:/cluster123:123123"
+    _FAKE_SHARE = "mfsmaster:/some_subpath"
     _FAKE_MNT_BASE = '/mnt'
     _FAKE_MNT_POINT = os.path.join(_FAKE_MNT_BASE, 'fake_hash')
     _FAKE_VOLUME_NAME = 'volume-4f711859-4928-4cb7-801a-a50c37ceaccc'
@@ -126,7 +126,7 @@ class MoosefsTestCase(test.TestCase):
     @mock.patch('os.path.exists')
     def test_setup_invalid_mount_point_base(self, mock_exists):
         mock_exists.side_effect = self._path_exists
-        self._cfg.vzstorage_mount_point_base = './tmp'
+        self._cfg.moosefs_mount_point_base = './tmp'
         mfs_driver = moosefs.MoosefsDriver(configuration=self._cfg)
         self.assertRaises(exception.MoosefsException,
                           mfs_driver.do_setup,
@@ -169,21 +169,13 @@ class MoosefsTestCase(test.TestCase):
     @mock.patch.object(remotefs.RemoteFsClient, 'mount')
     def test_ensure_share_mounted(self, mock_mount):
         drv = self._mfs_driver
-        share = 'test'
+        share = self._FAKE_SHARE
+        drv.shares[share] = '-o mfspassword=aa';
         expected_calls = [
-            mock.call(share, ['-u', 'cinder', '-g', 'root', '-l',
-                              '/var/log/vstorage/%s/cinder.log.gz' % share]),
-            mock.call(share, ['-l', '/var/log/dummy.log'])
-        ]
+            mock.call(share, ['-o', 'mfspassword=aa']),
+          ]
 
-        share_flags = '["-u", "cinder", "-g", "root"]'
-        drv.shares[share] = share_flags
         drv._ensure_share_mounted(share)
-
-        share_flags = '["-l", "/var/log/dummy.log"]'
-        drv.shares[share] = share_flags
-        drv._ensure_share_mounted(share)
-
         mock_mount.assert_has_calls(expected_calls)
 
     def test_find_share(self):
@@ -196,14 +188,14 @@ class MoosefsTestCase(test.TestCase):
     def test_find_share_no_shares_mounted(self):
         drv = self._mfs_driver
         with mock.patch.object(drv, '_is_share_eligible', return_value=True):
-            self.assertRaises(exception.VzStorageNoSharesMounted,
+            self.assertRaises(exception.MoosefsNoSharesMounted,
                               drv._find_share, self.vol)
 
     def test_find_share_no_shares_suitable(self):
         drv = self._mfs_driver
         drv._mounted_shares = [self._FAKE_SHARE]
         with mock.patch.object(drv, '_is_share_eligible', return_value=False):
-            self.assertRaises(exception.VzStorageNoSuitableShareFound,
+            self.assertRaises(exception.MoosefsNoSuitableShareFound,
                               drv._find_share, self.vol)
 
     def test_is_share_eligible_false(self):
@@ -358,7 +350,7 @@ class MoosefsTestCase(test.TestCase):
             'active': self._FAKE_VOLUME_NAME,
         }
         self._mfs_driver.get_volume_format = mock.Mock(
-            return_value=vzstorage.DISK_FORMAT_QCOW2)
+            return_value=moosefs.DISK_FORMAT_QCOW2)
         self._mfs_driver._read_info_file = mock.Mock(
             return_value=fake_snap_info
         )
@@ -387,27 +379,19 @@ class MoosefsTestCase(test.TestCase):
         drv._write_info_file = mock.Mock()
         drv._qemu_img_info = mock.Mock()
         drv._create_qcow2_file = mock.Mock()
-        #drv._create_ploop = mock.Mock()
 
         volume_type = fake_volume.fake_volume_type_obj(self.context)
         volume_type.extra_specs = {
-            'vz:volume_format': 'qcow2'
+            'moosefs:volume_format': 'qcow2'
         }
-        # volume1 = fake_volume.fake_volume_obj(self.context)
-        # volume1.size = 1024
-        # volume1.volume_type = volume_type
-        # volume2 = copy.deepcopy(volume1)
-        # volume2.metadata = {
-        #     'volume_format': 'ploop'
-        # }
+        volume1 = fake_volume.fake_volume_obj(self.context)
+        volume1.size = 1024
+        volume1.volume_type = volume_type
 
         drv._do_create_volume(volume1)
         drv._create_qcow2_file.assert_called_once_with(
             self._FAKE_VOLUME_PATH, 1024)
 
-        # drv._do_create_volume(volume2)
-        # drv._create_ploop.assert_called_once_with(
-        #     self._FAKE_VOLUME_PATH, 1024)
 
     @mock.patch('cinder.volume.drivers.remotefs.RemoteFSSnapDriver.'
                 '_create_cloned_volume')
