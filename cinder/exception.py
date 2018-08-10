@@ -1382,8 +1382,8 @@ class NVMETTargetAddError(CinderException):
 class NVMETTargetDeleteError(CinderException):
     message = "Failed to delete subsystem: %(subsystem)s"
 
-# MooseFS Storage Driver
 
+# MooseFS Storage Driver
 class MoosefsException(RemoteFSException):
     message = _("Unknown MooseFS exception")
 

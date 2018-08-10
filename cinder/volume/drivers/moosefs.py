@@ -13,17 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import collections
 import errno
-import json
 import os
-import re
+import time
 
 from os_brick.remotefs import remotefs
 from oslo_concurrency import processutils as putils
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_utils import imageutils
 from oslo_utils import units
 import six
 
@@ -76,6 +73,7 @@ driver_volume_type = 'moosefs'
 driver_prefix = 'moosefs'
 volume_backend_name = 'Generic_moosefs'
 
+
 @interface.volumedriver
 class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
     """Cinder driver for MooseFS Storage.
@@ -104,6 +102,27 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             'moosefs', root_helper, execute=execute,
             moosefs_mount_point_base=self.base,
             moosefs_mount_options=opts)
+
+    @remotefs_drv.locked_volume_id_operation
+    def initialize_connection(self, volume, connector):
+        """Allow connection to connector and return connection info.
+
+        :param volume: volume reference
+        :param connector: connector reference
+        """
+        # Find active image
+        active_file = self.get_active_image_from_info(volume)
+
+        data = {'export': volume.provider_location,
+                'format': self.get_volume_format(volume),
+                'name': active_file,
+                }
+
+        return {
+            'driver_volume_type': self.driver_volume_type,
+            'data': data,
+            'mount_point_base': self._get_mount_point_base(),
+        }
 
     def _update_volume_stats(self):
         super(MoosefsDriver, self)._update_volume_stats()
@@ -188,7 +207,6 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         LOG.debug('Selected %s share.', share)
 
         return share
-        #raise NotImplementedError()
 
     def _ensure_share_mounted(self, moosefs_share):
         mnt_flags = []
@@ -211,16 +229,19 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
     def _is_share_eligible(self, moosefs_share, volume_size_in_gib):
         """Verifies MooseFS share is eligible to host volume with given size.
+
         :param moosefs_share: moosefs share
         :param volume_size_in_gib: int size in GB
         """
+
         used_ratio = self.configuration.moosefs_used_ratio
         LOG.info("volume_size_in_gib  : %d", volume_size_in_gib)
         LOG.debug(units.Gi)
 
         volume_size = volume_size_in_gib * units.Gi
 
-        total_size, available, allocated = self._get_capacity_info(moosefs_share)
+        total_size, available, allocated = \
+            self._get_capacity_info(moosefs_share)
 
         if (allocated + volume_size) // total_size > used_ratio:
             LOG.debug('_is_share_eligible: %s is above '
@@ -259,7 +280,6 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
     @remotefs_drv.locked_volume_id_operation
     def extend_volume(self, volume, size_gb):
         LOG.info('Extending volume %s.', volume.id)
-        volume_format = self.get_volume_format(volume)
         self._extend_volume(volume, size_gb)
 
     def _extend_volume(self, volume, size_gb):
@@ -303,6 +323,7 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
 
     def _copy_volume_from_snapshot(self, snapshot, volume, volume_size):
         """Copy data from snapshot to destination volume.
+
         This is done with a qemu-img convert to raw/qcow2 from the snapshot
         qcow2.
         """
@@ -365,32 +386,11 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
         if os.path.exists(mounted_path):
             self._delete(mounted_path)
         else:
-            LOG.info(_LI("Skipping deletion of volume %s "
-                         "as it does not exist."), mounted_path)
+            LOG.info("Skipping deletion of volume %s "
+                     "as it does not exist.", mounted_path)
 
         info_path = self._local_path_volume_info(volume)
         self._delete(info_path)
-
-    @remotefs_drv.locked_volume_id_operation
-    def initialize_connection(self, volume, connector):
-        """Allow connection to connector and return connection info.
-
-        :param volume: volume reference
-        :param connector: connector reference
-        """
-        # Find active image
-        active_file = self.get_active_image_from_info(volume)
-
-        data = {'export': volume.provider_location,
-                'format': self.get_volume_format(volume),
-                'name': active_file,
-                }
-
-        return {
-            'driver_volume_type': self.driver_volume_type,
-            'data': data,
-            'mount_point_base': self._get_mount_point_base(),
-        }
 
     def _delete_snapshot(self, snapshot):
         info_path = self._local_path_volume_info(snapshot.volume)
@@ -412,9 +412,4 @@ class MoosefsDriver(remotefs_drv.RemoteFSSnapDriver):
             msg = (_("Expected higher file exists for snapshot %s") %
                    snapshot.id)
             raise exception.MoosefsException(msg)
-
-        img_info = self._qemu_img_info(snap_file, snapshot.volume.name)
-        base_file = os.path.join(self._local_volume_dir(snapshot.volume),
-                                 img_info.backing_file)
-
         super(MoosefsDriver, self)._delete_snapshot(snapshot)

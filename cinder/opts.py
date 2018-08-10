@@ -137,6 +137,7 @@ from cinder.volume.drivers.kaminario import kaminario_common as \
 from cinder.volume.drivers.lenovo import lenovo_common as \
     cinder_volume_drivers_lenovo_lenovocommon
 from cinder.volume.drivers import lvm as cinder_volume_drivers_lvm
+from cinder.volume.drivers import moosefs as cinder_volume_drivers_moosefs
 from cinder.volume.drivers.netapp import options as \
     cinder_volume_drivers_netapp_options
 from cinder.volume.drivers.nexenta import options as \
@@ -325,6 +326,7 @@ def list_opts():
                 cinder_volume_drivers_lenovo_lenovocommon.common_opts,
                 cinder_volume_drivers_lenovo_lenovocommon.iscsi_opts,
                 cinder_volume_drivers_lvm.volume_opts,
+                cinder_volume_drivers_moosefs.moosefs_opts,
                 cinder_volume_drivers_netapp_options.netapp_proxy_opts,
                 cinder_volume_drivers_netapp_options.netapp_connection_opts,
                 cinder_volume_drivers_netapp_options.netapp_transport_opts,

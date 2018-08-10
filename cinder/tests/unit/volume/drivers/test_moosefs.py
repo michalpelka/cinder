@@ -12,8 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import collections
-import copy
 import ddt
 import errno
 import os
@@ -95,10 +93,10 @@ class MoosefsTestCase(test.TestCase):
             return False
         return _orig_path_exists(path)
 
-    # @mock.patch('os.path.exists')
-    # def test_setup_ok(self, mock_exists):
-    #     mock_exists.side_effect = self._path_exists
-    #     self._mfs_driver.do_setup(mock.sentinel.context)
+    @mock.patch('os.path.exists')
+    def test_setup_ok(self, mock_exists):
+        mock_exists.side_effect = self._path_exists
+        self._mfs_driver.do_setup(mock.sentinel.context)
 
     @mock.patch('os.path.exists')
     def test_setup_missing_shares_conf(self, mock_exists):
@@ -170,10 +168,8 @@ class MoosefsTestCase(test.TestCase):
     def test_ensure_share_mounted(self, mock_mount):
         drv = self._mfs_driver
         share = self._FAKE_SHARE
-        drv.shares[share] = '-o mfspassword=aa';
-        expected_calls = [
-            mock.call(share, ['-o', 'mfspassword=aa']),
-          ]
+        drv.shares[share] = '-o mfspassword=aa'
+        expected_calls = [mock.call(share, ['-o', 'mfspassword=aa'])]
 
         drv._ensure_share_mounted(share)
         mock_mount.assert_has_calls(expected_calls)
@@ -208,7 +204,6 @@ class MoosefsTestCase(test.TestCase):
 
     def test_is_share_eligible_true(self):
         drv = self._mfs_driver
-        #total_size, available, allocated
         cap_info = (100 * units.Gi, 40 * units.Gi, 60 * units.Gi)
         with mock.patch.object(drv, '_get_capacity_info',
                                return_value=cap_info):
@@ -320,29 +315,6 @@ class MoosefsTestCase(test.TestCase):
                 self._FAKE_VOLUME_PATH)
             drv._delete.assert_any_call(fake_vol_info)
 
-    # @mock.patch('cinder.volume.drivers.remotefs.RemoteFSSnapDriverBase.'
-    #             '_write_info_file')
-    # def test_delete_snapshot_ploop(self, _mock_write_info_file):
-    #     fake_snap_info = {
-    #         'active': self._FAKE_VOLUME_NAME,
-    #         self._FAKE_SNAPSHOT_ID: self._FAKE_SNAPSHOT_PATH,
-    #     }
-    #     self._mfs_driver.get_volume_format = mock.Mock(
-    #         return_value=vzstorage.DISK_FORMAT_PLOOP)
-    #     self._mfs_driver._read_info_file = mock.Mock(
-    #         return_value=fake_snap_info
-    #     )
-    #     self._mfs_driver._get_desc_path = mock.Mock(
-    #         return_value='%s/DiskDescriptor.xml' % self._FAKE_VOLUME_PATH
-    #     )
-    #     self._mfs_driver.delete_snapshot(self.snap)
-    #     self._mfs_driver._execute.assert_called_once_with(
-    #         'ploop', 'snapshot-delete', '-u',
-    #         '{%s}' % self._FAKE_SNAPSHOT_ID,
-    #         '%s/DiskDescriptor.xml' % self._FAKE_VOLUME_PATH,
-    #         run_as_root=True
-    #     )
-
     @mock.patch('cinder.volume.drivers.remotefs.RemoteFSSnapDriverBase.'
                 '_delete_snapshot')
     def test_delete_snapshot_qcow2_invalid_snap_info(self,
@@ -357,20 +329,6 @@ class MoosefsTestCase(test.TestCase):
         )
         self._mfs_driver.delete_snapshot(self.snap)
         self.assertFalse(mock_delete_snapshot.called)
-
-    # def test_extend_volume_ploop(self):
-    #     drv = self._mfs_driver
-    #     drv.local_path = mock.Mock(
-    #         return_value=self._FAKE_VOLUME_PATH)
-    #     drv.get_volume_format = mock.Mock(
-    #         return_value=vzstorage.DISK_FORMAT_PLOOP)
-    #     drv._is_share_eligible = mock.Mock(
-    #         return_value=True)
-    #     drv.extend_volume(self.vol, 100)
-    #     drv._execute.assert_called_once_with(
-    #         'ploop', 'resize', '-s', '100G',
-    #         '%s/DiskDescriptor.xml' % self._FAKE_VOLUME_PATH,
-    #         run_as_root=True)
 
     @mock.patch.object(os.path, 'exists', return_value=False)
     def test_do_create_volume_with_volume_type(self, mock_exists):
@@ -392,7 +350,6 @@ class MoosefsTestCase(test.TestCase):
         drv._do_create_volume(volume1)
         drv._create_qcow2_file.assert_called_once_with(
             self._FAKE_VOLUME_PATH, 1024)
-
 
     @mock.patch('cinder.volume.drivers.remotefs.RemoteFSSnapDriver.'
                 '_create_cloned_volume')
@@ -417,54 +374,3 @@ class MoosefsTestCase(test.TestCase):
         mock_remotefs_create_cloned_volume.assert_called_once_with(
             volume, src_vref)
         self.assertEqual(ret, {'provider_location': self._FAKE_SHARE})
-
-    # @mock.patch.object(moosefs.MoosefsDriver, '_local_path_volume_info')
-    # @mock.patch.object(moosefs.MoosefsDriver, '_create_snapshot_ploop')
-    # @mock.patch.object(moosefs.MoosefsDriver, 'delete_snapshot')
-    # @mock.patch.object(moosefs.MoosefsDriver, '_write_info_file')
-    # @mock.patch.object(moosefs.MoosefsDriver, '_copy_volume_from_snapshot')
-    # @mock.patch.object(moosefs.MoosefsDriver, 'get_volume_format',
-    #                    return_value='ploop')
-    # def test_create_cloned_volume_ploop(self,
-    #                                     mock_get_volume_format,
-    #                                     mock_copy_volume_from_snapshot,
-    #                                     mock_write_info_file,
-    #                                     mock_delete_snapshot,
-    #                                     mock_create_snapshot_ploop,
-    #                                     mock_local_path_volume_info,
-    #                                     ):
-    #     drv = self._mfs_driver
-    #     volume = fake_volume.fake_volume_obj(self.context)
-    #     src_vref_id = '375e32b2-804a-49f2-b282-85d1d5a5b9e1'
-    #     src_vref = fake_volume.fake_volume_obj(
-    #         self.context,
-    #         id=src_vref_id,
-    #         name='volume-%s' % src_vref_id,
-    #         provider_location=self._FAKE_SHARE)
-    #
-    #     snap_attrs = ['volume_name', 'size', 'volume_size', 'name',
-    #                   'volume_id', 'id', 'volume']
-    #     Snapshot = collections.namedtuple('Snapshot', snap_attrs)
-    #
-    #     snap_ref = Snapshot(volume_name=volume.name,
-    #                         name='clone-snap-%s' % src_vref.id,
-    #                         size=src_vref.size,
-    #                         volume_size=src_vref.size,
-    #                         volume_id=src_vref.id,
-    #                         id=src_vref.id,
-    #                         volume=src_vref)
-
-        # def _check_provider_location(volume):
-        #     self.assertEqual(volume.provider_location, self._FAKE_SHARE)
-        #     return mock.sentinel.fake_info_path
-        # mock_local_path_volume_info.side_effect = _check_provider_location
-        #
-        # ret = drv.create_cloned_volume(volume, src_vref)
-        # self.assertEqual(ret, {'provider_location': self._FAKE_SHARE})
-        #
-        # mock_write_info_file.assert_called_once_with(
-        #     mock.sentinel.fake_info_path, {'active': 'volume-%s' % volume.id})
-        # mock_create_snapshot_ploop.assert_called_once_with(snap_ref)
-        # mock_copy_volume_from_snapshot.assert_called_once_with(
-        #     snap_ref, volume, volume.size)
-        # mock_delete_snapshot.assert_called_once_with(snap_ref)
